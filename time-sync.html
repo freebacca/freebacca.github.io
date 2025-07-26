@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>iPhone-Server Time Sync</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            padding: 20px; 
+            background-color: #f8f9fa;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h2 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        button { 
+            font-size: 18px; 
+            padding: 15px 30px; 
+            margin: 15px 0; 
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            width: 100%;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        .result { 
+            background: #f8f9fa; 
+            padding: 20px; 
+            margin: 15px 0; 
+            font-family: monospace; 
+            border-radius: 5px;
+            border-left: 4px solid #007bff;
+        }
+        .measuring {
+            background: #fff3cd;
+            border-left-color: #ffc107;
+            text-align: center;
+            font-family: Arial, sans-serif;
+        }
+        .error {
+            background: #f8d7da;
+            border-left-color: #dc3545;
+            color: #721c24;
+        }
+        .progress {
+            margin: 10px 0;
+            text-align: center;
+            font-weight: bold;
+        }
+        pre {
+            max-height: 300px;
+            overflow-y: auto;
+            font-size: 12px;
+        }
+        .highlight {
+            background-color: #e7f3ff;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>📱 iPhone Time Sync Tool</h2>
+        <p style="text-align: center; color: #666;">Using TimeAPI.io as reference for precise time measurement</p>
+        
+        <button id="measureBtn" onclick="measureTimeOffset()">🕒 Start Time Measurement</button>
+        
+        <div id="results"></div>
+    </div>
+    
+    <script>
+    async function measureTimeOffset() {
+        const results = document.getElementById('results');
+        const btn = document.getElementById('measureBtn');
+        
+        btn.disabled = true;
+        btn.textContent = 'Measuring...';
+        
+        results.innerHTML = '<div class="result measuring">📊 Starting measurements...<br><div class="progress">0/10 completed</div></div>';
+        
+        const measurements = [];
+        
+        for (let i = 0; i < 10; i++) {
+            try {
+                // Update progress
+                results.innerHTML = `<div class="result measuring">📊 Measuring... (${i + 1}/10)<br><div class="progress">${i}/10 completed</div></div>`;
+                
+                const t1 = Date.now();
+                const t1_hr = performance.now();
+                
+                // Use TimeAPI.io - same as your server
+                const response = await fetch('https://timeapi.io/api/Time/current/zone?timeZone=UTC', {
+                    method: 'GET',
+                    cache: 'no-cache'
+                });
+                
+                const t2 = Date.now();
+                const t2_hr = performance.now();
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                // Parse TimeAPI.io response
+                const serverDate = new Date(
+                    data.year, 
+                    data.month - 1, // JavaScript months are 0-indexed
+                    data.day,
+                    data.hour,
+                    data.minute,
+                    data.seconds,
+                    data.milliSeconds || 0
+                );
+                
+                const serverTime = serverDate.getTime();
+                const rtt = t2 - t1;
+                const rtt_precise = t2_hr - t1_hr;
+                
+                // Calculate offset (positive means iPhone is ahead)
+                const estimatedServerTimeAtT2 = serverTime + (rtt / 2);
+                const offset_ms = t2 - estimatedServerTimeAtT2;
+                
+                measurements.push({
+                    measurement: i + 1,
+                    offset_ms: offset_ms,
+                    rtt_ms: rtt,
+                    rtt_precise_ms: rtt_precise,
+                    timestamp: new Date().toISOString()
+                });
+                
+            } catch (error) {
+                console.error('Error in measurement', i + 1, ':', error);
+                measurements.push({
+                    measurement: i + 1,
+                    error: error.message,
+                    timestamp: new Date().toISOString()
+                });
+            }
+            
+            // Wait between measurements
+            if (i < 9) await new Promise(r => setTimeout(r, 300));
+        }
+        
+        // Filter out failed measurements
+        const validMeasurements = measurements.filter(m => !m.error);
+        
+        if (validMeasurements.length === 0) {
+            results.innerHTML = '<div class="result error">❌ All measurements failed. Check your internet connection and try again.</div>';
+            btn.disabled = false;
+            btn.textContent = '🕒 Start Time Measurement';
+            return;
+        }
+        
+        // Find best measurement (lowest RTT)
+        const best = validMeasurements.reduce((min, m) => m.rtt_ms < min.rtt_ms ? m : min);
+        const avg = validMeasurements.reduce((sum, m) => sum + m.offset_ms, 0) / validMeasurements.length;
+        const median = validMeasurements.map(m => m.offset_ms).sort((a, b) => a - b)[Math.floor(validMeasurements.length / 2)];
+        
+        results.innerHTML = `
+            <div class="result">
+                <h3>📊 iPhone Time Offset Results</h3>
+                
+                <div class="highlight">
+                    <h4>🎯 Best Measurement (Lowest RTT):</h4>
+                    <p><strong>Time Offset:</strong> ${best.offset_ms > 0 ? '+' : ''}${best.offset_ms.toFixed(1)} ms</p>
+                    <p><strong>Round Trip Time:</strong> ${best.rtt_ms} ms</p>
+                    <p><strong>Precision RTT:</strong> ${best.rtt_precise_ms.toFixed(3)} ms</p>
+                    <p><strong>Uncertainty:</strong> ±${(best.rtt_ms/2).toFixed(1)} ms</p>
+                </div>
+                
+                <p><strong>📈 Statistics:</strong></p>
+                <p>• Average offset: ${avg.toFixed(1)} ms</p>
+                <p>• Median offset: ${median.toFixed(1)} ms</p>
+                <p>• Valid measurements: ${validMeasurements.length}/10</p>
+                
+                <div class="highlight">
+                    <h4>🔄 For Server Comparison:</h4>
+                    <p>Your iPhone is <strong>${best.offset_ms > 0 ? best.offset_ms.toFixed(1) + ' ms ahead of' : Math.abs(best.offset_ms).toFixed(1) + ' ms behind'}</strong> TimeAPI.io</p>
+                    
+                    <p><strong>📋 Copy these values:</strong></p>
+                    <p>• Server offset: +37,006,500 μs (from your script)</p>
+                    <p>• iPhone offset: ${(best.offset_ms * 1000).toFixed(0)} μs</p>
+                    <p>• <strong>iPhone vs Server:</strong> ${((best.offset_ms * 1000) + 37006500).toFixed(0)} μs</p>
+                </div>
+            </div>
+            
+            <div class="result">
+                <h4>📝 Detailed Measurements:</h4>
+                <pre>${JSON.stringify(validMeasurements, null, 2)}</pre>
+            </div>
+        `;
+        
+        btn.disabled = false;
+        btn.textContent = '🕒 Start Time Measurement';
+    }
+    </script>
+</body>
+</html> 
