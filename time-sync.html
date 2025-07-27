@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>iPhone-Server Time Sync</title>
+    <title>iPhone Time Sync</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         body { 
@@ -102,13 +102,11 @@
         
         for (let i = 0; i < 10; i++) {
             try {
-                // Update progress
                 results.innerHTML = `<div class="result measuring">📊 Measuring... (${i + 1}/10)<br><div class="progress">${i}/10 completed</div></div>`;
                 
                 const t1 = Date.now();
                 const t1_hr = performance.now();
                 
-                // Use TimeAPI.io - same as your server
                 const response = await fetch('https://timeapi.io/api/Time/current/zone?timeZone=UTC', {
                     method: 'GET',
                     cache: 'no-cache'
@@ -123,8 +121,8 @@
                 
                 const data = await response.json();
                 
-                // Parse TimeAPI.io response
-                const serverDate = new Date(
+                // --- FIX: Use Date.UTC() to correctly handle UTC time ---
+                const serverTime = Date.UTC(
                     data.year, 
                     data.month - 1, // JavaScript months are 0-indexed
                     data.day,
@@ -134,11 +132,9 @@
                     data.milliSeconds || 0
                 );
                 
-                const serverTime = serverDate.getTime();
                 const rtt = t2 - t1;
                 const rtt_precise = t2_hr - t1_hr;
                 
-                // Calculate offset (positive means iPhone is ahead)
                 const estimatedServerTimeAtT2 = serverTime + (rtt / 2);
                 const offset_ms = t2 - estimatedServerTimeAtT2;
                 
@@ -159,11 +155,9 @@
                 });
             }
             
-            // Wait between measurements
             if (i < 9) await new Promise(r => setTimeout(r, 300));
         }
         
-        // Filter out failed measurements
         const validMeasurements = measurements.filter(m => !m.error);
         
         if (validMeasurements.length === 0) {
@@ -173,7 +167,6 @@
             return;
         }
         
-        // Find best measurement (lowest RTT)
         const best = validMeasurements.reduce((min, m) => m.rtt_ms < min.rtt_ms ? m : min);
         const avg = validMeasurements.reduce((sum, m) => sum + m.offset_ms, 0) / validMeasurements.length;
         const median = validMeasurements.map(m => m.offset_ms).sort((a, b) => a - b)[Math.floor(validMeasurements.length / 2)];
@@ -186,24 +179,15 @@
                     <h4>🎯 Best Measurement (Lowest RTT):</h4>
                     <p><strong>Time Offset:</strong> ${best.offset_ms > 0 ? '+' : ''}${best.offset_ms.toFixed(1)} ms</p>
                     <p><strong>Round Trip Time:</strong> ${best.rtt_ms} ms</p>
-                    <p><strong>Precision RTT:</strong> ${best.rtt_precise_ms.toFixed(3)} ms</p>
                     <p><strong>Uncertainty:</strong> ±${(best.rtt_ms/2).toFixed(1)} ms</p>
                 </div>
+
+                <p>Your iPhone is <strong>${best.offset_ms > 0 ? best.offset_ms.toFixed(1) + ' ms ahead of' : Math.abs(best.offset_ms).toFixed(1) + ' ms behind'}</strong> TimeAPI.io</p>
                 
                 <p><strong>📈 Statistics:</strong></p>
                 <p>• Average offset: ${avg.toFixed(1)} ms</p>
                 <p>• Median offset: ${median.toFixed(1)} ms</p>
                 <p>• Valid measurements: ${validMeasurements.length}/10</p>
-                
-                <div class="highlight">
-                    <h4>🔄 For Server Comparison:</h4>
-                    <p>Your iPhone is <strong>${best.offset_ms > 0 ? best.offset_ms.toFixed(1) + ' ms ahead of' : Math.abs(best.offset_ms).toFixed(1) + ' ms behind'}</strong> TimeAPI.io</p>
-                    
-                    <p><strong>📋 Copy these values:</strong></p>
-                    <p>• Server offset: +37,006,500 μs (from your script)</p>
-                    <p>• iPhone offset: ${(best.offset_ms * 1000).toFixed(0)} μs</p>
-                    <p>• <strong>iPhone vs Server:</strong> ${((best.offset_ms * 1000) + 37006500).toFixed(0)} μs</p>
-                </div>
             </div>
             
             <div class="result">
